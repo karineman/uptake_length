@@ -1,0 +1,236 @@
+---
+title: "2_uptake_calc"
+author: "Karin Emanuelson"
+date: "10/29/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir='./..')
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(nlme)
+library(ggthemes)
+library(ggpubr)
+library(gridExtra)
+```
+
+
+```{r, include= FALSE}
+## Data Read in
+chem<- read_csv(('data/in/chem_clean_long.csv'))%>%
+  mutate(date=date(datetime))
+
+chem_bg<- read_csv(('data/in/chem_mean_bg.csv'))
+```
+
+```{r, echo = FALSE}
+## Create Function to make linear model and calculate uptake length
+# for testing
+# data= chem_pred$data[[8]]
+
+uptake_length <- function(data=chem_sum$data) {
+  lm_fit <- lm(data$ln_n_cl ~ data$site, data)
+  co <- coef(lm_fit)
+  return(co)
+}
+
+lm_predict <- function(data=chem_sum$data){
+  lm_fit <- lm(data$ln_n_cl ~ data$site, data)
+  predict_lm <- predict(lm_fit, interval = "confidence")
+  data_2<-cbind(data, predict_lm)
+  return(data_2)
+}
+
+#create lookup table for injection rounds and treatments
+treatment = data.frame(
+  date = c(
+    "2018-06-26",
+    "2018-06-28",
+    "2018-06-30",
+    "2018-07-02",
+    "2018-07-17",
+    "2018-07-19",
+    "2018-07-21",
+    "2018-07-23"
+  ),
+  treatment = c('N', 'NC', 'NP', 'NCP', 'N', 'NC', 'NP', 'NCP'),
+  C = c(0, 1, 0, 1, 0, 1, 0, 1),
+  P = c(0, 0, 1, 1, 0, 0, 1, 1)
+) %>%
+  mutate(treatment= factor(treatment, levels = c('N', 'NC', 'NP', 'NCP')))%>%
+  mutate(inj_round = ifelse(
+    date %in% c("2018-06-26", "2018-06-28", "2018-06-30", "2018-07-02"),
+    1,
+    2
+  )) %>%
+  mutate(date = as.Date(date)) %>%
+  mutate(C = as.factor(C)) %>%
+  mutate(P = as.factor(P))
+
+treat_sum<-treatment%>%
+  select(-P, -C)
+treat_sum
+```
+
+## Background Correct Concentrations and Graph
+```{r,echo=FALSE}
+#create dataset with bg_mean concentrations
+chem_merge<- chem%>%
+  left_join(.,chem_bg)
+
+# Subtract bg from raw value
+chem_corr<- chem_merge%>%
+  mutate(value_corr=value-bg_mean)
+
+#Create function to graph
+plotChem_corr <- function (df, site, value = value_corr) {
+  date_title<-date(df$datetime[[1]])
+    ggplot(df, aes(site,value),group = 1) +
+      geom_point(shape = 16, size = 3) +
+      geom_line() +
+      theme_few() +
+      facet_wrap( ~ var, ncol = 1, scale = 'free_y')+
+      labs(title = date_title)
+}
+
+
+chem_corr_nest<-chem_corr%>%
+  arrange(date)%>%
+  group_by(date)%>%
+  nest()
+
+corr<-map(chem_corr_nest$data, plotChem_corr, value =chem_corr_nest$data$value_corr )
+
+corr[[1]]
+corr[[2]]
+corr[[3]]
+corr[[4]]
+corr[[5]]
+corr[[6]]
+corr[[7]]
+corr[[8]]
+```
+
+
+```{r, echo=FALSE, warning=FALSE}
+## Calculate N/Cl ratio, make linear model, create summary table
+#Calculate N:Cl ratio
+chem_sum <- chem_corr%>%
+  select(sample, datetime, site, var, value_corr)%>%
+  spread(var, value_corr)%>%
+  mutate(n_cl= NO3/Cl)%>%
+  mutate(ln_n_cl=log(n_cl))%>%
+  filter(!is.na(ln_n_cl))%>%
+  select(sample, datetime, site, NO3, Cl, n_cl, ln_n_cl)%>%
+  mutate(date=date(datetime))
+
+chem_sum_nest<-chem_sum%>%
+  arrange(date)%>%
+  group_by(date)%>%
+  nest()
+
+#Create function to graph
+plotChem_sum <- 
+    ggplot(chem_sum, aes(site, n_cl),group = 1) +
+      geom_point(shape = 16, size = 3) +
+      geom_line() +
+      theme_few() +
+      facet_grid(~date, scales="free_y")
+
+# Nest and create linear model extract Sw for each
+chem_lm <- chem_sum%>%
+  group_by(date)%>%
+  nest()%>%
+  mutate(lm_model_co = map(data, uptake_length))%>%
+  mutate(tidy_lm = map(lm_model_co, broom::tidy))%>%
+  unnest(tidy_lm)%>%
+  spread(names, x)%>%
+  rename(intercept= (2))%>%
+  rename(slope = (3))%>%
+  mutate(sw_N = (1 / -slope))
+
+chem_lm
+
+write_csv(chem_lm,"data/out/chem_lm.csv")
+
+# data_check<- chem_lm$data[[1]]
+```
+
+## Create graph to see lm with data by injection data
+```{r, echo=FALSE}
+chem_pred <- chem_sum%>%
+  left_join(treatment, by='date')%>%
+  group_by(date)%>%
+  nest()%>%
+  mutate(data= map(data, lm_predict))%>%
+  unnest()
+
+g <-  ggplot(chem_pred, aes(x = site, y = ln_n_cl)) +
+  geom_point() +
+  geom_ribbon(aes(ymin = lwr, ymax = upr, color = NULL), alpha = .15) +
+  geom_line(aes(y = fit)) +
+  facet_grid( ~ date, scales = "free_y") +
+  theme_few() +
+  stat_cor(aes(label = paste(..rr.label..,..p.label.., sep = "~`,`~")), 
+    label.x = -4, size=3) +
+  labs(x = 'Distance downstream', y = 'ln([NO3] / [Cl])')
+g
+
+
+g1<-chem_pred%>%
+  filter(inj_round==1)%>%
+  ggplot(., aes(x=site, y=ln_n_cl))+
+  geom_point()+
+  geom_ribbon( aes(ymin = lwr, ymax = upr, color = NULL), alpha = .15)+
+  geom_line( aes(y = fit))+
+  facet_grid(~date, scales="free_y")+
+  theme_few()+
+  stat_cor(aes(label = paste(..rr.label..,..p.label.., sep = "~`,`~")), 
+    label.y = -9, size=4) +
+  labs(x = 'Distance downstream', y= 'ln([NO3] / [Cl])', title = 'Injection Round 1')
+
+g2<-chem_pred%>%
+  filter(inj_round==2)%>%
+  ggplot(., aes(x=site, y=ln_n_cl))+
+  geom_point()+
+  geom_ribbon( aes(ymin = lwr, ymax = upr, color = NULL), alpha = .15)+
+  geom_line( aes(y = fit))+
+  facet_grid(~date, scales="free_y")+
+  theme_few()+
+  stat_cor(aes(label = paste(..rr.label..,..p.label.., sep = "~`,`~")), 
+    label.y = -4.25, size=4) +
+  labs(x = 'Distance downstream', y= 'ln([NO3] / [Cl])', title = 'Injection Round 2')
+
+grid.arrange(g1, g2, ncol=1, nrow =2)
+```
+
+
+## Add treatments and look at only NO3 data
+```{r, echo=FALSE}
+chem_sum_n<-chem_lm%>%
+  left_join(treatment, by='date')
+
+ggplot(chem_sum_n,aes(x=treatment, y=sw_N))+
+  geom_boxplot()+
+  theme_few()
+
+ggplot(chem_sum_n, aes(x=treatment, y=sw_N))+
+  geom_col()+
+  theme_few()+
+  facet_grid(inj_round~., scales="free_y")
+```
+
+
+```{r, include = FALSE}
+## Create an anova to see if there is differences
+Model_sw <- aov(sw_N ~ C*P, data = chem_sum_n)
+summary(Model_sw)
+# plot(Model_sw , main="Un-Transformed SW")
+shapiro.test(chem_sum_n$sw_N)
+
+```

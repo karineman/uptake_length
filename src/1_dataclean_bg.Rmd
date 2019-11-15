@@ -1,0 +1,215 @@
+---
+title: "1_dataclean_bg"
+author: "Karin Emanuelson"
+date: "10/17/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+## Setup
+knitr::opts_knit$set(root.dir='./..')
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(xts)
+library(dygraphs)
+library(ggrepel)
+library(knitr)
+library(plotly)
+library(ggthemes)
+library(RColorBrewer)
+library(htmltools)
+
+
+# Number of experiments
+exp=8
+```
+
+
+```{r, include=FALSE}
+## Load Raw Chem Data for Plateau Samples only
+chem_grab_bg<- read_csv(('data/in/2018_ComoCreek_WaterChemistry_Mastersheet_Recreated_110519_SORTED.csv'), skip=7)%>%
+      mutate(Datetime= mdy_hm(Datetime,tz='MST7MDT'))%>%
+      mutate(run_date= mdy(run_date))%>%
+      select(-ID)%>%
+      mutate(id = rownames(.))%>%
+  select(
+    sample = "Sample #" ,
+    id,
+    site = Location,
+    datetime = Datetime,
+    compartment = Type1,
+    sample_type = Type2,
+    rundate = run_date,
+    df = DF,
+    Na:SO4_DIL
+  )%>%
+    filter(compartment == 'MC') %>%
+  filter(sample_type =='BG LONG')
+
+# lookup table for chem Max/Min
+chem_qc= data.frame(var = c('Cl','NO3','PO4'), MaxDL=c(1.7, 5, 7.5), MDL=c(.01, .01, .01))
+
+
+```
+
+## Clean data: Look at Background Longitudinal Sample concentrations for each day. Select which value from different run (out of the series of duplicate and dilution runs)
+
+
+```{r, include=FALSE}
+### Create long dataset
+chem_bg<-chem_grab_bg %>%
+  select(sample:SO4)%>%
+  gather(var, value, Na:SO4) %>%
+  filter(var %in% c('NO3','Cl','PO4'))%>%
+  mutate(value = as.numeric(value))%>%
+  mutate(site = as.numeric(site))%>%
+  mutate(df = if_else(is.na(df),1,df))%>%
+  mutate(conc_type = 'final') %>%
+  mutate(value = if_else(is.na(value), .005, value))
+
+
+chem_flag<- 
+  chem_bg%>%
+  mutate(value = value/df)%>%
+  mutate(conc_type='raw')%>%
+  left_join(chem_qc)%>%
+  mutate(MaxDL_flag = if_else(value>MaxDL, 'Yes','No'))%>%
+  mutate(MDL_flag= if_else(value<MDL, 'Yes','No'))%>%
+  select(id, var, MaxDL_flag, MDL_flag)
+  
+chem_long_bg<-
+  chem_bg%>%
+  left_join(chem_flag)%>%
+  mutate(id = rownames(.))
+```
+
+
+```{r, include = FALSE}
+### Define functions to graph data and set color scheme
+plotChem <- function (df, choose_param=c( 'Cl', 'NO3', 'PO4')) {
+  date_title<-date(df$datetime[[1]])
+  ggplotly(
+    ggplot(
+      dplyr::filter(df, var %in% choose_param),
+      aes(
+        site,
+        value,
+        fill = c(sample_type),
+        text = paste('date: ',datetime,
+          '<br> value:',value,
+          '<br> sample_type:',sample_type,
+          '<br> rundate:',rundate,
+          '<br> sample:',sample,
+          '<br> df:',df,
+          '<br> MaxDL_flag:',MaxDL_flag,
+          '<br> MDL_flag:',MDL_flag,
+          '<br> id:',id
+        ),
+        group = 1
+      )
+    ) +
+      geom_point(shape = 21, size = 3) +
+      geom_line() +
+      theme_few() +
+      scale_fill_manual(values = col_vector) +
+      facet_wrap( ~ var, ncol = 1, scale = 'free_y')+
+      labs(title = date_title),
+    width = 1200,
+    height =    1000,
+    tooltip = 'text'
+  )
+}
+
+#create color scheme for chem plots
+n <- 40
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+
+```
+
+### Raw Visualize
+```{r}
+# Filter for each injection
+chem_grab_nest_bg<-chem_long_bg%>%
+  mutate(date=date(datetime))%>%
+  arrange(date)%>%
+  group_by(date)%>%
+  nest()
+
+bg<-map(chem_grab_nest_bg$data, plotChem)
+
+# Doesn't work?!
+# for (i in 1:exp) {
+# print(bg[[i]])
+# }
+
+bg[[1]]
+bg[[2]]
+bg[[3]]
+bg[[4]]
+bg[[5]]
+bg[[6]]
+bg[[7]]
+bg[[8]]
+
+```
+
+#### Create good_id vector and only select those datapoints
+```{r}
+
+good_id_bg<-c(1:40,43:81,82:105,108:110,112:121,124:136,138:162,163:202,205:243)
+
+#create dataset of only selected points
+chem_clean_long_bg <- chem_long_bg%>%
+  filter(id %in% good_id_bg)%>%
+  mutate(date=date(datetime))
+
+#double check that Max Detection Limit is vaild
+chem_clean_long_flagged<-chem_clean_long_bg%>%
+  filter(MaxDL_flag== 'Yes')
+
+count(chem_clean_long_flagged)
+```
+
+### Visualize Selected Data
+```{r, echo=FALSE}
+# Double check everything
+chem_clean_nest_bg<-chem_clean_long_bg%>%
+  arrange(date)%>%
+  group_by(date)%>%
+  nest()
+
+
+c<-map(chem_clean_nest_bg$data, plotChem)
+
+c[[1]]
+c[[2]]
+c[[3]]
+c[[4]]
+c[[5]]
+c[[6]]
+c[[7]]
+c[[8]]
+```
+
+### Summarize to get mean BG conc per day
+```{r, echo = FALSE}
+chem_mean_bg<- chem_clean_long_bg%>%
+  group_by(date, var)%>%
+  summarize(bg_mean=mean(value))
+
+background_means<-chem_mean_bg%>%
+    spread(var, bg_mean)
+background_means
+
+write_csv(background_means,"data/in/background_means.csv" )
+write_csv(chem_mean_bg,"data/in/chem_mean_bg.csv" )
+
+```
+
+
+
+

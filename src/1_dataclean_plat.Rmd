@@ -1,0 +1,190 @@
+---
+title: "1_dataclean_plat"
+author: "Karin Emanuelson"
+date: "10/17/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+## Setup
+knitr::opts_knit$set(root.dir='./..')
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(xts)
+library(dygraphs)
+library(ggrepel)
+library(knitr)
+library(plotly)
+library(ggthemes)
+library(RColorBrewer)
+
+```
+
+
+```{r, include=FALSE}
+## Load Raw Chem Data for Plateau Samples only
+chem_grab_plat<- read_csv(('data/in/2018_ComoCreek_WaterChemistry_Mastersheet_Recreated_103019.csv'), skip=7)%>%
+      mutate(Datetime= mdy_hm(Datetime,tz='MST7MDT'))%>%
+      mutate(run_date= mdy(run_date))%>%
+      select(-ID)%>%
+      mutate(id = rownames(.))%>%
+  select(
+    sample = "Sample #" ,
+    id,
+    site = Location,
+    datetime = Datetime,
+    compartment = Type1,
+    sample_type = Type2,
+    rundate = run_date,
+    df = DF,
+    Na:SO4_DIL
+  )%>%
+    filter(compartment == 'MC') %>%
+  filter(sample_type %in% c('PLAT LONG', 'PLAT LONG DUP', 'PLAT LONG DIL'))
+
+# lookup table for chem Max/Min
+chem_qc= data.frame(var = c('Cl','NO3','PO4'), MaxDL=c(1.7, 5, 7.5), MDL=c(.01, .01, .01))
+
+
+```
+
+## Clean data: Look at Plateau Longitudinal Sample concentrations for each day. Select which value from different run (out of the series of duplicate and dilution runs)
+
+```{r, include=FALSE}
+### Create long dataset
+chem<-chem_grab_plat %>%
+  select(sample:SO4)%>%
+  gather(var, value, Na:SO4) %>%
+  filter(var %in% c('NO3','Cl','PO4'))%>%
+  mutate(value = as.numeric(value))%>%
+  mutate(site = as.numeric(site))%>%
+  mutate(df = if_else(is.na(df),1,df))%>%
+  mutate(conc_type = 'final') %>%
+  mutate(value = if_else(is.na(value), .005, value))
+
+
+chem_flag<- 
+  chem%>%
+  mutate(value = value/df)%>%
+  mutate(conc_type='raw')%>%
+  left_join(chem_qc)%>%
+  mutate(MaxDL_flag = if_else(value>MaxDL, 'Yes','No'))%>%
+  mutate(MDL_flag= if_else(value<MDL, 'Yes','No'))%>%
+  select(id, var, MaxDL_flag, MDL_flag)
+  
+chem_long<-
+  chem%>%
+  left_join(chem_flag)%>%
+  mutate(id = rownames(.))
+```
+
+
+```{r, include = FALSE}
+### Define functions to graph data and set color scheme
+plotChem <- function (df, choose_param=c( 'Cl', 'NO3', 'PO4')) {
+  date_title<-date(df$datetime[[1]])
+  ggplotly(
+    ggplot(
+      dplyr::filter(df, var %in% choose_param),
+      aes(
+        site,
+        value,
+        fill = c(sample_type),
+        text = paste('date: ',datetime,
+          '<br> value:',value,
+          '<br> sample_type:',sample_type,
+          '<br> rundate:',rundate,
+          '<br> sample:',sample,
+          '<br> df:',df,
+          '<br> MaxDL_flag:',MaxDL_flag,
+          '<br> MDL_flag:',MDL_flag,
+          '<br> id:',id
+        ),
+        group = 1
+      )
+    ) +
+      geom_point(shape = 21, size = 3) +
+      geom_line() +
+      theme_few() +
+      scale_fill_manual(values = col_vector) +
+      facet_wrap( ~ var, ncol = 1, scale = 'free_y')+
+      labs(title = date_title),
+    width = 1200,
+    height =    1000,
+    tooltip = 'text'
+  )
+}
+
+#create color scheme for chem plots
+n <- 40
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+
+```
+
+### Visualize Raw Data
+```{r, echo = FALSE}
+# Filter for each injection
+chem_grab_nest<-chem_long%>%
+  mutate(date=date(datetime))%>%
+  arrange(date)%>%
+  group_by(date)%>%
+  nest()
+
+a<-map(chem_grab_nest$data, plotChem)
+
+a[[1]]
+a[[2]]
+a[[3]]
+a[[4]]
+a[[5]]
+a[[6]]
+a[[7]]
+a[[8]]
+```
+
+#### Create good_id vector and only select those datapoints
+```{r}
+
+good_id<-c(75:83, 84:92, 93:109, 161, 163:170, 174, 193:198, 200, 204, 212:214, 218:229, 242, 249, 258:266,  268:276, 278:286, 288:295, 328, 369:377, 379:386, 437:440, 443, 444, 446:448, 458:460, 472:474, 505, 507, 508, 535:543, 545:552, 585, 636:643, 703:705, 715:717, 729:731)
+
+#create dataset of only selected points
+chem_clean_long <- chem_long%>%
+  filter(id %in% good_id)
+
+#double check that Max Detection Limit is vaild
+chem_clean_long_flagged<-chem_clean_long%>%
+  filter(MaxDL_flag== 'Yes')
+
+count(chem_clean_long_flagged)
+```
+
+### Visualize Selected Data
+```{r, echo=FALSE}
+chem_clean_nest<-chem_clean_long%>%
+  mutate(date=date(datetime))%>%
+  arrange(date)%>%
+  group_by(date)%>%
+  nest()
+
+write_csv(chem_clean_long,"data/in/chem_clean_long.csv" )
+
+b<-map(chem_clean_nest$data, plotChem)
+
+b[[1]]
+b[[2]]
+b[[3]]
+b[[4]]
+b[[5]]
+b[[6]]
+b[[7]]
+b[[8]]
+
+```
+
+
+
+
