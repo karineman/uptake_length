@@ -1,16 +1,32 @@
 ---
 title: "1_dataclean_plat"
 author: "Karin Emanuelson"
-date: "10/17/2019"
+date: "12/2/2019"
 output: html_document
+bibliography: library.bib
 editor_options: 
   chunk_output_type: console
 ---
+# Calculating Uptake: Clean Plateau Data (step 2 of 3)
 
-```{r setup, include=FALSE}
+## Study Background
+
+A series of four-hour nutrient enrichment injections were conducted at Como Creek, CO during the summer of 2018 as part of a collaborative NSF funded research project that is evaluating the hydrologic and stoichiometric conditions that maximize N retention. Each series of enrichment injections consisted of the following treatments:
+
+1. nitrogen alone, 
+2. nitrogen and carbon, 
+3. nitrogen and phosphorus, and 
+4. nitrogen, carbon and phosphorus 
+* all co-injected with a conservative tracer (chloride). 
+
+Grab samples were taken throughout the experiments to determine background concentrations, plateau concentrations and concentrations down the falling limb of the breakthroughcurve. This analysis will determine the uptake length, average distance traveled by a dissolved nutrient before biotic uptake, for nitrogen for each of the four treatments [@Tank2017].
+
+```{r setup, warning = FALSE, echo = TRUE, message=FALSE}
 ## Setup
 knitr::opts_knit$set(root.dir='./..')
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo=TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message=FALSE)
 library(tidyverse)
 library(lubridate)
 library(xts)
@@ -23,8 +39,10 @@ library(RColorBrewer)
 
 ```
 
+## Data Cleaning: Plateau Samples
 
-```{r, include=FALSE}
+Plateau longitudinal samples were taken every 50 meters throughout the stream reach each day during the plateau portion of the breakthrough curve. These samples represent the highest concentration of added nutrients throughout the experiment. In this step, raw chemistry data is read in, filtered to only include the plateau samples, and flagged for minimum and maximum detection limits. If value is below the minimum detection limit, one half of the detection limit is used as replace value.
+```{r}
 ## Load Raw Chem Data for Plateau Samples only
 chem_grab_plat<- read_csv(('data/in/2018_ComoCreek_WaterChemistry_Mastersheet_Recreated_103019.csv'), skip=7)%>%
       mutate(Datetime= mdy_hm(Datetime,tz='MST7MDT'))%>%
@@ -51,9 +69,8 @@ chem_qc= data.frame(var = c('Cl','NO3','PO4'), MaxDL=c(1.7, 5, 7.5), MDL=c(.01, 
 
 ```
 
-## Clean data: Look at Plateau Longitudinal Sample concentrations for each day. Select which value from different run (out of the series of duplicate and dilution runs)
 
-```{r, include=FALSE}
+```{r}
 ### Create long dataset
 chem<-chem_grab_plat %>%
   select(sample:SO4)%>%
@@ -65,7 +82,7 @@ chem<-chem_grab_plat %>%
   mutate(conc_type = 'final') %>%
   mutate(value = if_else(is.na(value), .005, value))
 
-
+## Flag for minimum and maximum detection limits
 chem_flag<- 
   chem%>%
   mutate(value = value/df)%>%
@@ -74,7 +91,8 @@ chem_flag<-
   mutate(MaxDL_flag = if_else(value>MaxDL, 'Yes','No'))%>%
   mutate(MDL_flag= if_else(value<MDL, 'Yes','No'))%>%
   select(id, var, MaxDL_flag, MDL_flag)
-  
+
+## Add flags to long dataset   
 chem_long<-
   chem%>%
   left_join(chem_flag)%>%
@@ -82,10 +100,10 @@ chem_long<-
 ```
 
 
-```{r, include = FALSE}
+```{r}
 ### Define functions to graph data and set color scheme
 plotChem <- function (df, choose_param=c( 'Cl', 'NO3', 'PO4')) {
-  date_title<-date(df$datetime[[1]])
+  date_title<-date(df$datetime[[1]]) #Define title for each graph
   ggplotly(
     ggplot(
       dplyr::filter(df, var %in% choose_param),
@@ -93,7 +111,7 @@ plotChem <- function (df, choose_param=c( 'Cl', 'NO3', 'PO4')) {
         site,
         value,
         fill = c(sample_type),
-        text = paste('date: ',datetime,
+        text = paste('date: ',datetime, #Define pop-up info
           '<br> value:',value,
           '<br> sample_type:',sample_type,
           '<br> rundate:',rundate,
@@ -126,7 +144,10 @@ col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_co
 ```
 
 ### Visualize Raw Data
-```{r, echo = FALSE}
+
+Graph background longitudinal sample concentrations for the ions of interest (NO3, PO4, and Cl) each day. Visually inspect data for outliers, select which value from different in-lab runs (out of the series of duplicate and dilution runs) and create "good id" vector of chosen datapoints. Hover over graphed points to see sample ID, dilution factor, rundate, min and max flags, and concentration value. Use this information to determine which IDs are most suitable for each ion.
+
+```{r}
 # Filter for each injection
 chem_grab_nest<-chem_long%>%
   mutate(date=date(datetime))%>%
@@ -146,7 +167,7 @@ a[[7]]
 a[[8]]
 ```
 
-#### Create good_id vector and only select those datapoints
+#### Create good_id vector and only select those datapoints. Check count of flagged data. If count is not 0, inspect dataset to ensure validity of chosen data. If data is over the maximum detection limit, rerun samples at greater dilution.
 ```{r}
 
 good_id<-c(75:83, 84:92, 93:109, 161, 163:170, 174, 193:198, 200, 204, 212:214, 218:229, 242, 249, 258:266,  268:276, 278:286, 288:295, 328, 369:377, 379:386, 437:440, 443, 444, 446:448, 458:460, 472:474, 505, 507, 508, 535:543, 545:552, 585, 636:643, 703:705, 715:717, 729:731)
@@ -163,7 +184,10 @@ count(chem_clean_long_flagged)
 ```
 
 ### Visualize Selected Data
-```{r, echo=FALSE}
+
+Graph selected plateau longitudinal sample concentrations for the ions of interest (NO3, PO4, and Cl) each day. Use this as a double check before you continue to use these data points in future analysis.
+```{r}
+# Graph to double check
 chem_clean_nest<-chem_clean_long%>%
   mutate(date=date(datetime))%>%
   arrange(date)%>%

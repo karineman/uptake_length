@@ -1,16 +1,32 @@
 ---
 title: "1_dataclean_bg"
 author: "Karin Emanuelson"
-date: "10/17/2019"
+date: "12/2/2019"
 output: html_document
+bibliography: library.bib
 editor_options: 
   chunk_output_type: console
 ---
+# Calculating Uptake: Clean Background Data (step 1 of 3)
 
-```{r setup, include=FALSE}
+## Study Background
+
+A series of four-hour nutrient enrichment injections were conducted at Como Creek, CO during the summer of 2018 as part of a collaborative NSF funded research project that is evaluating the hydrologic and stoichiometric conditions that maximize N retention. Each series of enrichment injections consisted of the following treatments:
+
+1. nitrogen alone, 
+2. nitrogen and carbon, 
+3. nitrogen and phosphorus, and 
+4. nitrogen, carbon and phosphorus 
+* all co-injected with a conservative tracer (chloride). 
+
+Grab samples were taken throughout the experiments to determine background concentrations, plateau concentrations and concentrations down the falling limb of the breakthroughcurve. This analysis will determine the uptake length, average distance traveled by a dissolved nutrient before biotic uptake, for nitrogen for each of the four treatments [@Tank2017].
+
+```{r setup, warning = FALSE, echo = TRUE, message=FALSE}
 ## Setup
 knitr::opts_knit$set(root.dir='./..')
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo=TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message=FALSE)
 library(tidyverse)
 library(lubridate)
 library(xts)
@@ -21,15 +37,14 @@ library(plotly)
 library(ggthemes)
 library(RColorBrewer)
 library(htmltools)
-
-
-# Number of experiments
-exp=8
 ```
 
+## Data Cleaning: Background Samples
 
-```{r, include=FALSE}
-## Load Raw Chem Data for Plateau Samples only
+Background longitudinal samples were taken every 50 meters through the stream reach each day before the nutrient enrichment injections began. These samples represent the ambient nutrient concentration in the stream. All data will need to be background corrected in order to only account the for the added nutrients in the analysis. As the first step, raw chemistry data is read in, filtered to only include the background samples, and flagged for minimum and maximum detection limits.
+
+```{r}
+## Load Raw Chem Data for Background Samples only
 chem_grab_bg<- read_csv(('data/in/2018_ComoCreek_WaterChemistry_Mastersheet_Recreated_110519_SORTED.csv'), skip=7)%>%
       mutate(Datetime= mdy_hm(Datetime,tz='MST7MDT'))%>%
       mutate(run_date= mdy(run_date))%>%
@@ -52,13 +67,10 @@ chem_grab_bg<- read_csv(('data/in/2018_ComoCreek_WaterChemistry_Mastersheet_Recr
 # lookup table for chem Max/Min
 chem_qc= data.frame(var = c('Cl','NO3','PO4'), MaxDL=c(1.7, 5, 7.5), MDL=c(.01, .01, .01))
 
-
 ```
 
-## Clean data: Look at Background Longitudinal Sample concentrations for each day. Select which value from different run (out of the series of duplicate and dilution runs)
 
-
-```{r, include=FALSE}
+```{r}
 ### Create long dataset
 chem_bg<-chem_grab_bg %>%
   select(sample:SO4)%>%
@@ -70,7 +82,7 @@ chem_bg<-chem_grab_bg %>%
   mutate(conc_type = 'final') %>%
   mutate(value = if_else(is.na(value), .005, value))
 
-
+## Flag for minimum and maximum detection limits
 chem_flag<- 
   chem_bg%>%
   mutate(value = value/df)%>%
@@ -79,7 +91,8 @@ chem_flag<-
   mutate(MaxDL_flag = if_else(value>MaxDL, 'Yes','No'))%>%
   mutate(MDL_flag= if_else(value<MDL, 'Yes','No'))%>%
   select(id, var, MaxDL_flag, MDL_flag)
-  
+
+## Add flags to long dataset  
 chem_long_bg<-
   chem_bg%>%
   left_join(chem_flag)%>%
@@ -87,10 +100,10 @@ chem_long_bg<-
 ```
 
 
-```{r, include = FALSE}
-### Define functions to graph data and set color scheme
+```{r}
+### Define function to graph data and set color scheme
 plotChem <- function (df, choose_param=c( 'Cl', 'NO3', 'PO4')) {
-  date_title<-date(df$datetime[[1]])
+  date_title<-date(df$datetime[[1]]) #Define title for each graph
   ggplotly(
     ggplot(
       dplyr::filter(df, var %in% choose_param),
@@ -98,7 +111,7 @@ plotChem <- function (df, choose_param=c( 'Cl', 'NO3', 'PO4')) {
         site,
         value,
         fill = c(sample_type),
-        text = paste('date: ',datetime,
+        text = paste('date: ',datetime, #Define pop-up info
           '<br> value:',value,
           '<br> sample_type:',sample_type,
           '<br> rundate:',rundate,
@@ -130,7 +143,10 @@ col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_co
 
 ```
 
-### Raw Visualize
+### Visualize Raw Data
+
+Graph background longitudinal sample concentrations for the ions of interest (NO3, PO4, and Cl) each day. Visually inspect data for outliers, and create "good id" vector of chosen datapoints. Hover over graphed points to see sample ID, dilution factor, rundate, min and max flags, and concentration value.
+
 ```{r}
 # Filter for each injection
 chem_grab_nest_bg<-chem_long_bg%>%
@@ -140,11 +156,6 @@ chem_grab_nest_bg<-chem_long_bg%>%
   nest()
 
 bg<-map(chem_grab_nest_bg$data, plotChem)
-
-# Doesn't work?!
-# for (i in 1:exp) {
-# print(bg[[i]])
-# }
 
 bg[[1]]
 bg[[2]]
@@ -157,7 +168,7 @@ bg[[8]]
 
 ```
 
-#### Create good_id vector and only select those datapoints
+#### Create good_id vector and only select those datapoints. Check count of flagged data. If count is not 0, inspect dataset to ensure validity of chosen data. 
 ```{r}
 
 good_id_bg<-c(1:40,43:81,82:105,108:110,112:121,124:136,138:162,163:202,205:243)
@@ -175,7 +186,9 @@ count(chem_clean_long_flagged)
 ```
 
 ### Visualize Selected Data
-```{r, echo=FALSE}
+
+Graph selected background longitudinal sample concentrations for the ions of interest (NO3, PO4, and Cl) each day. Use this as a double check before you continue to use these data points in future analysis
+```{r}
 # Double check everything
 chem_clean_nest_bg<-chem_clean_long_bg%>%
   arrange(date)%>%
@@ -195,15 +208,16 @@ c[[7]]
 c[[8]]
 ```
 
-### Summarize to get mean BG conc per day
-```{r, echo = FALSE}
+## Summarize Data
+Take the mean of the sample concentrations for each ion of interest (NO3, PO4, and Cl) each day. This background mean concentration will be used to background correct plateau concentrations.
+```{r}
 chem_mean_bg<- chem_clean_long_bg%>%
   group_by(date, var)%>%
   summarize(bg_mean=mean(value))
 
 background_means<-chem_mean_bg%>%
     spread(var, bg_mean)
-background_means
+kable(background_means)
 
 write_csv(background_means,"data/in/background_means.csv" )
 write_csv(chem_mean_bg,"data/in/chem_mean_bg.csv" )
