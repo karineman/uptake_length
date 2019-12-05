@@ -128,6 +128,10 @@ corr[[8]]
 
 
 ## Calculate Nitrate Uptake Length
+
+1. Calculate the natural log of the Nitrate to Chloride ratio, ln(N/Cl), for each injection day
+2. Create linear model between ln(N/Cl) and sampling site
+3. Extract slope from linear model and calculate nitrate uptake length, Sw_N, for each injection day
 ```{r}
 ## Create Functions
 
@@ -151,9 +155,7 @@ lm_predict_n <- function(data=chem_sum$data){
 
 ```
 
-1. Calculate the natural log of the Nitrate to Chloride ratio, ln(N/Cl), for each injection day
-2. Create linear model between ln(N/Cl) and sampling site
-3. Extract slope from linear model and calculate nitrate uptake length, Sw_N, for each injection day
+
 ```{r}
 ## Calculate N/Cl ratio, make linear model, create summary table
 
@@ -166,10 +168,6 @@ chem_sum <- chem_corr%>%
   select(sample, datetime, site, NO3, Cl, n_cl, ln_n_cl)%>%
   mutate(date=date(datetime))
 
-chem_sum_nest<-chem_sum%>%
-  arrange(date)%>%
-  group_by(date)%>%
-  nest()
 
 # # to graph results
 # plotChem_sum <- 
@@ -218,6 +216,7 @@ g <-  ggplot(chem_pred, aes(x = site, y = ln_n_cl)) +
   stat_cor(aes(label = paste(..rr.label..,..p.label.., sep = "~`,`~")), 
     label.x = -4, size=3) +
   labs(x = 'Distance downstream', y = 'ln([NO3] / [Cl])')
+g
 
 # Stacked by injection round
 g1<-chem_pred%>%
@@ -266,6 +265,10 @@ ggplot(chem_sum_n, aes(x=treatment, y=sw_N))+
 ```
 
 ## Calculate Phosphate Uptake Length
+
+1. Calculate the natural log of the Phosphate to Chloride ratio, ln(P/Cl), for each injection day
+2. Create linear model between ln(P/Cl) and sampling site
+3. Extract slope from linear model and calculate phosphate uptake length, Sw_P, for each injection day
 ```{r}
 ## Create Functions
 
@@ -288,9 +291,7 @@ lm_predict_p <- function(data=chem_sum$data){
 }
 ```
 
-1. Calculate the natural log of the Phosphate to Chloride ratio, ln(P/Cl), for each injection day
-2. Create linear model between ln(P/Cl) and sampling site
-3. Extract slope from linear model and calculate phosphate uptake length, Sw_P, for each injection day
+
 ```{r}
 ## Calculate P/Cl ratio, make linear model, create summary table
 
@@ -304,10 +305,6 @@ chem_sum_p <- chem_corr%>%
   select(sample, datetime, site, PO4, Cl, p_cl, ln_p_cl)%>%
   mutate(date=date(datetime))
 
-chem_sum_nest_p<-chem_sum_p%>%
-  arrange(date)%>%
-  group_by(date)%>%
-  nest()
 
 # Nest and create linear model extract Sw for each
 chem_lm_p <- chem_sum_p%>%

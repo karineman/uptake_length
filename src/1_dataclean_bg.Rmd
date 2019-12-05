@@ -11,7 +11,7 @@ editor_options:
 
 ## Study Background
 
-A series of four-hour nutrient enrichment injections were conducted at Como Creek, CO during the summer of 2018 as part of a collaborative NSF funded research project that is evaluating the hydrologic and stoichiometric conditions that maximize N retention. Each series of enrichment injections consisted of the following treatments:
+A series of four-hour nutrient enrichment injections were conducted at Como Creek, CO during the summer of 2018 as part of a collaborative NSF funded research project that is evaluating the hydrologic and stoichiometric conditions that maximize nitrogen retention. Each series of enrichment injections consisted of the following treatments:
 
 1. nitrogen alone, 
 2. nitrogen and carbon, 
@@ -41,7 +41,7 @@ library(htmltools)
 
 ## Data Cleaning: Background Samples
 
-Background longitudinal samples were taken every 50 meters through the stream reach each day before the nutrient enrichment injections began. These samples represent the ambient nutrient concentration in the stream. All data will need to be background corrected in order to only account the for the added nutrients in the analysis. As the first step, raw chemistry data is read in, filtered to only include the background samples, and flagged for minimum and maximum detection limits.
+Background longitudinal samples were taken every 50 meters through the stream reach each day before the nutrient enrichment injections began. These samples represent the ambient nutrient concentration in the stream. All data will need to be background corrected in order to only account the for the added nutrients in the analysis. As the first step, raw chemistry data is read in, filtered to only include the background samples, and flagged for minimum and maximum detection limits. If value is below the minimum detection limit, one half of the detection limit is used as a replacement value.
 
 ```{r}
 ## Load Raw Chem Data for Background Samples only
@@ -99,7 +99,9 @@ chem_long_bg<-
   mutate(id = rownames(.))
 ```
 
+### Visualize Raw Data
 
+Graph background longitudinal sample concentrations for the ions of interest (NO3, PO4, and Cl) each day. Visually inspect data for outliers, and create "good id" vector of chosen datapoints. Hover over graphed points to see sample ID, dilution factor, rundate, min and max flags, and concentration value.
 ```{r}
 ### Define function to graph data and set color scheme
 plotChem <- function (df, choose_param=c( 'Cl', 'NO3', 'PO4')) {
@@ -142,10 +144,6 @@ qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
 col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
 
 ```
-
-### Visualize Raw Data
-
-Graph background longitudinal sample concentrations for the ions of interest (NO3, PO4, and Cl) each day. Visually inspect data for outliers, and create "good id" vector of chosen datapoints. Hover over graphed points to see sample ID, dilution factor, rundate, min and max flags, and concentration value.
 
 ```{r}
 # Filter for each injection
