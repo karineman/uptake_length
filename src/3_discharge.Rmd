@@ -1,0 +1,87 @@
+---
+title: "3_discharge"
+author: "Karin Emanuelson"
+date: "11/8/2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir='./..')
+library(tidyverse)
+library(lubridate)
+library(xts)
+library(dygraphs)
+library(ggrepel)
+library(knitr)
+library(plotly)
+library(ggthemes)
+library(RColorBrewer)
+library(ggpubr)
+```
+
+
+```{r, include= FALSE}
+## Data Read in stage data at 500 meter site from HOBO
+stage_CU<- read_csv(('data/in/9683143_Como_S_15_500m_STR_07.13.csv'))%>%
+  mutate(datetime=mdy_hm(datetime,tz='MST7MDT'))%>%
+  mutate(stage_cu_cm=depth_m*100)%>%
+  select(datetime, stage_cu_cm)
+    
+stage_MRS<- read_csv(('data/in/2018_ComoCreek_Q.csv'))%>%
+  mutate(datetime=mdy_hm(datetime, tz='MST7MDT'))%>%
+  mutate(datetime= round_date(datetime, unit="10 minutes"))%>%
+  distinct(datetime, .keep_all=TRUE)%>%
+  mutate(stage_mrs_cm=stage_cm)%>%
+  select(datetime, stage_mrs_cm, discharge_lps)
+  
+stage_discharge<-left_join(stage_CU, stage_MRS, by='datetime')%>%
+  filter(!is.na(stage_mrs_cm))
+
+
+# Create linear model between MRS stage and Hobo CU stage
+lm_fit_stage <- lm(stage_discharge$stage_mrs_cm ~ stage_discharge$stage_cu_cm, stage_discharge)
+co <- coef(lm_fit_stage)
+intercept<- co[1]
+slope<- co[2]
+
+# plot data and lm to check
+ggplot(stage_discharge, aes(x=stage_cu_cm, y=stage_mrs_cm))+
+  geom_point()+
+  geom_abline(aes(intercept = intercept, slope = slope))+
+  stat_cor(aes(label = paste(..rr.label.., sep = "~`,`~")), 
+    label.x = 5, label.y = 40, size=3)+
+  theme_few()
+
+# predict corr_stage with this dataset (not needed)
+# predict_lm <- predict(lm_fit_stage, interval = "confidence")
+# stage_discharge<-cbind(stage_discharge, predict_lm)
+
+# Correct continuous CU stage to MRS stage to use with rating curve
+stage_cu_cor<- mutate(stage_CU, corr_stage = slope*stage_cu_cm+intercept)
+
+```
+
+## Apply Rating curve
+```{r, include = FALSE}
+# Rating curve from MRS found here: G:\Shared drives\HZ-Stoichiometry\Como Creek\Discharge Data\Rating Curve_Wier Data\Ryan_RC(updated).tif
+discharge_500<-stage_cu_cor%>%
+  mutate(discharge_500= 0.3208*corr_stage^(1.99112))
+
+write_csv(discharge_500, 'data/out/discharge_500.csv')
+
+```
+
+## Graph to check out the data
+```{r, echo = FALSE}
+
+DIS<- left_join(discharge_500, stage_MRS)
+DIS.xts<- xts(select(DIS, datetime, discharge_500, discharge_lps), order.by = discharge_500$datetime)
+
+#plot concentration comparison on dygraph
+dygraph(DIS.xts, main = "Discharge Comparison")%>%
+dyOptions(connectSeparatedPoints = TRUE)%>%
+            dyRangeSelector()
+```
+
